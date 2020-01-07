@@ -24,7 +24,7 @@ type Order struct {
 
 var (
 	mode = flag.Uint("mode", uint(Mod), "Run mod")
-	frequency = flag.Float64("frq", 20, "frequency")
+	frequency = flag.Float64("frq", 20, "frequency ms")
 )
 
 func main() {
@@ -57,7 +57,7 @@ func main() {
 		}
 		conn.Write(jsonData)
 	case uint(1):
-		du := time.Duration(*frequency) * time.Millisecond
+		du := time.Duration(*frequency * 1000) * time.Microsecond
 		for count := 65 * 1000 / *frequency; count > 0; count-- {
 			msg := Order{
 				OptType:Mod,
