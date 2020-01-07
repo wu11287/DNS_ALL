@@ -24,7 +24,7 @@ type Order struct {
 
 var (
 	mode = flag.Uint("mode", uint(Mod), "Run mod")
-	frequency = flag.Int("frq", 20, "frequency")
+	frequency = flag.Float64("frq", 20, "frequency")
 )
 
 func main() {
