@@ -4,8 +4,13 @@ import (
 	"encoding/json"
 	"flag"
 	"net"
+	"os/exec"
 	"strconv"
 	"time"
+)
+
+var (
+	ProjectPath = "/go/src/BCDns_0.1/"
 )
 
 type OperationType uint8
@@ -73,6 +78,11 @@ func main() {
 			conn.Write(jsonData)
 			i++
 			time.Sleep(du)
+		}
+		cmd := exec.Command(ProjectPath + "stop.sh")
+		err = cmd.Run()
+		if err != nil {
+			panic(err)
 		}
 	case uint(2):
 		msg := Order{
