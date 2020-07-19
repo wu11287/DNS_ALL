@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/BCDns_0.1" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/BCDns_client" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/BCDns_daemon" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/golang.org/x/lint" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/golang.org/x/sync" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/golang.org/x/tools" vcs="Git" />
+  </component>
+</project>
