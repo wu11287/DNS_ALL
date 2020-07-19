@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+    "fmt"
 	"net"
 	"os/exec"
 	"strconv"
@@ -19,12 +20,15 @@ const (
 	Add OperationType = iota
 	Del
 	Mod
+	Select
 )
+
+
 
 type Order struct {
 	OptType  OperationType
 	ZoneName string
-	Values   map[string]string
+	Values   []string
 }
 
 var (
@@ -38,6 +42,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("udp 地址结构创建完成")
+
 	lUdpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:8887")
 	if err != nil {
 		panic(err)
@@ -47,28 +53,31 @@ func main() {
 		panic(err)
 	}
 	i := 0
+
 	switch *mode {
 	case uint(0):
 		msg := Order{
 			OptType:Add,
 			ZoneName:"com.",
-			Values: map[string]string{
-				"A":strconv.Itoa(i),
+			Values: []string{
+				strconv.Itoa(i),
 			},
 		}
 		jsonData, err := json.Marshal(msg)
 		if err != nil {
 			panic(err)
 		}
-		conn.Write(jsonData)
+        a := 0
+		a , err = conn.Write(jsonData)
+		fmt.Println(a, err)
 	case uint(1):
 		du := time.Duration(*frequency * 1000) * time.Microsecond
 		for count := 65 * 1000 / *frequency; count > 0; count-- {
 			msg := Order{
 				OptType:Mod,
 				ZoneName:"com.",
-				Values: map[string]string{
-					"A":strconv.Itoa(i),
+				Values: []string{
+					strconv.Itoa(i),
 				},
 			}
 			jsonData, err := json.Marshal(msg)
@@ -84,6 +93,32 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+	case uint(3):
+		fmt.Println("uint 3")
+		msg := Order{
+			OptType:Select,
+			ZoneName:"com.",
+			Values: []string{
+				"172.182.18.1",
+			}, 
+		}
+		jsonData, err := json.Marshal(msg)
+		if err != nil {
+			panic(err)
+		}
+        // a := 0
+		_ , err = conn.Write(jsonData)
+		//receive
+		buf := make([]byte,4096)
+		fmt.Println("11111")
+		n, err := conn.Read(buf)
+		fmt.Println("fffff")
+    	if err != nil {
+        	fmt.Println("conn.Write err",err)
+        	return
+    	}
+    	fmt.Println("服务器回发",string(buf[:n]))
+		
 	case uint(2):
 		msg := Order{
 			OptType:Del,
@@ -95,4 +130,6 @@ func main() {
 		}
 		conn.Write(jsonData)
 	}
+
+	fmt.Println("end")
 }
