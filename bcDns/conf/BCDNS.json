@@ -1,0 +1,9 @@
+{
+  "HOSTNAME": "hostname",
+  "PORT": "8001",
+  "Byzantine": false,
+  "MODE": "MYBFT",
+  "TEST": "yes",
+  "DELAY": 1,
+  "CONFIGINTERVAL": 10
+}

@@ -1,0 +1,1 @@
+./generateCert.sh net-device Country Province City Organization unit common-name
