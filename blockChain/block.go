@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const BlockMaxSize = 1
+const BlockMaxSize = 200
 
 type BlockSlice []Block
 
@@ -206,7 +206,6 @@ func UnMarshalBlockValidated(data []byte) (*BlockValidated, error) {
 	}
 	return b, nil
 }
-
 
 func (b *BlockValidated) VerifyBlockValidated() bool {
 	hash, err := b.Block.Hash() //blockheader
