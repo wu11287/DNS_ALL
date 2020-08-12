@@ -274,6 +274,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 		case msgByte := <-service.ProposalChan:
 			var proposal messages.ProposalMessage
 			err := json.Unmarshal(msgByte, &proposal)
+			fmt.Println(string(msgByte))
 			if err != nil {
 				logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
 				continue
@@ -292,14 +293,6 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 						c.generateBlock()
 					}
 				}
-				//} else {
-				//	name, err := utils.GetCertId(*service2.CertificateAuthorityX509.CertificatesOrder[c.LeaderId])
-				//	if err != nil {
-				//		logger.Warningf("[SendToLeader] GetCertId failed err=%v", err)
-				//		continue
-				//	}
-				//	service.Net.SendTo(msgByte, service.ProposalMsg, name)
-				//}
 			}
 		case blockMsg := <-blockChan:
 			c.ProcessBlockMessage(&blockMsg)
@@ -316,8 +309,13 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 			}
 			c.ProcessBlockMessage(&msg)
 		case msgByte := <-service.BlockConfirmChan:
-			//副本节点对某个区块验证成功，广播，这个chan有数据
+			//副本节点对某个区块验证成功，广播，这个chan有数据,传进来的是byte类型的数组
 			var msg messages.BlockConfirmMessage //其中id是blockhash唯一的，当作key
+			err := json.Unmarshal(msgByte, &msg)
+			if err != nil {
+				logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
+				continue
+			}
 			hash := string(msg.Id)
 
 			if _, ok := TaskDistribute[hash]; ok {
@@ -327,7 +325,8 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				TaskDistribute[hash] = make(chan *messages.BlockConfirmMessage, 2048)
 				go func(pip chan *messages.BlockConfirmMessage) {
 					for {
-						<-pip
+						res := <-pip
+						fmt.Println("pip:", string(res.Id))
 						err := json.Unmarshal(msgByte, &msg)
 						if err != nil {
 							logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
@@ -349,6 +348,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 						}
 						//在这个地方验证收到区块消息的数量
 						c.BlockPrepareMsg[string(msg.Id)][msg.From] = msg.Proof
+						fmt.Println("count:", len(c.BlockPrepareMsg))
 						if _, ok := c.Block[string(msg.Id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(msg.Id)])) {
 							blockValidated := blockChain.NewBlockValidated(c.Block[string(msg.Id)].Block, c.BlockPrepareMsg[string(msg.Id)])
 							if blockValidated == nil {
