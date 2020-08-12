@@ -220,10 +220,11 @@ func (ca *CAX509) Exits(id string) bool {
 	return ok
 }
 
-func (ca *CAX509) Check(n int) bool {
+func (ca *CAX509)Check(n int) bool {
 	ca.Mutex.Lock()
 	defer ca.Mutex.Unlock()
 
+	//收到2f+1个验证
 	return n >= ca.GetF()*2+1
 }
 

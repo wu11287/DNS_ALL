@@ -36,6 +36,8 @@ var (
 	blockChan  chan model.BlockMessage
 	logger     *logging.Logger // package-level logger
 	UdpAddress = "127.0.0.1:8888"
+	//定义一个map
+	TaskDistribute map[string](chan *messages.BlockConfirmMessage)
 )
 
 type ConsensusMyBft struct {
@@ -48,7 +50,7 @@ type ConsensusMyBft struct {
 	Contexts       map[string]context.CancelFunc
 	Conn           *net.UDPConn
 	OrderChan      chan []byte
-	IsValidaHost   chan bool       
+	IsValidaHost   chan bool
 	PCount         uint
 
 	//Node role
@@ -79,14 +81,16 @@ type ConsensusMyBft struct {
 type Order struct {
 	OptType  messages.OperationType
 	ZoneName string
-	//todo 
-	IpAddr   string
-	Values   []string
+	//todo
+	IpAddr string
+	Values []string
 }
 
 func init() {
 	blockChan = make(chan model.BlockMessage, service.ChanSize)
 	logger = logging.MustGetLogger("consensusMy")
+	//初始化分发线程的这个map
+	TaskDistribute = make(map[string](chan *messages.BlockConfirmMessage))
 }
 
 func NewConsensus() (model.ConsensusI, error) {
@@ -258,7 +262,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 			c.Mutex.Unlock()
 		case msgByte := <-c.OrderChan:
 			fmt.Println("orderchan")
-			fmt.Println(string(msgByte)) //此时拿到了客户端传递过来的数据
+			//fmt.Println(string(msgByte)) //此时拿到了客户端传递过来的数据
 			var msg Order
 			err = json.Unmarshal(msgByte, &msg)
 			if err != nil {
@@ -276,7 +280,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 			}
 			c.PPPcount++
 			if _, exist := c.ProposalsCache[string(proposal.Id)]; !exist {
-				if !c.handleProposal(proposal) {//valide suit？
+				if !c.handleProposal(proposal) { //valide suit？
 					continue
 				}
 				c.PPCount++
@@ -299,8 +303,8 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 			}
 		case blockMsg := <-blockChan:
 			c.ProcessBlockMessage(&blockMsg)
-		case msgByte := <-service.BlockChan://leader
-		if c.IsOnChanging() {
+		case msgByte := <-service.BlockChan: //leader
+			if c.IsOnChanging() {
 				//TODO Add feedback mechanism which send msg to client
 				continue
 			}
@@ -311,39 +315,56 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				continue
 			}
 			c.ProcessBlockMessage(&msg)
-		//case msgByte := <-service.BlockConfirmChan:
-		//	var msg messages.BlockConfirmMessage
-		//	err := json.Unmarshal(msgByte, &msg)
-		//	if err != nil {
-		//		logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
-		//		continue
-		//	}
-		//	if msg.View != c.View {
-		//		continue
-		//	}
-		//	if !msg.VerifySignature() {
-		//		logger.Warningf("[Node.Run] msg.VerifySignature failed")
-		//		continue
-		//	}
-		//	if !msg.VerifyProof() {
-		//		logger.Warningf("[Node.Run] msg.VerifyProof failed")
-		//		continue
-		//	}
-		//	if _, ok := c.BlockPrepareMsg[string(msg.Id)]; !ok {
-		//		c.BlockPrepareMsg[string(msg.Id)] = map[string][]byte{}
-		//	}
-		//	c.BlockPrepareMsg[string(msg.Id)][msg.From] = msg.Proof
-		//	if _, ok := c.Block[string(msg.Id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(msg.Id)])) {
-		//		blockValidated := blockChain.NewBlockValidated(c.Block[string(msg.Id)].Block, c.BlockPrepareMsg[string(msg.Id)])
-		//		if blockValidated == nil {
-		//			logger.Warningf("[Node.Run] NewBlockValidated failed")
-		//			continue
-		//		}
-		//		fmt.Println("Road", 1)
-		//		c.ExecuteBlock(blockValidated)
-		//		delete(c.BlockPrepareMsg, string(msg.Id))
-		//		delete(c.Block, string(msg.Id))
-		//	}
+		case msgByte := <-service.BlockConfirmChan:
+			//副本节点对某个区块验证成功，广播，这个chan有数据
+			var msg messages.BlockConfirmMessage //其中id是blockhash唯一的，当作key
+			hash := string(msg.Id)
+
+			if _, ok := TaskDistribute[hash]; ok {
+				//传递过去
+				TaskDistribute[hash] <- &msg
+			} else {
+				TaskDistribute[hash] = make(chan *messages.BlockConfirmMessage, 2048)
+				go func(pip chan *messages.BlockConfirmMessage) {
+					for {
+						<-pip
+						err := json.Unmarshal(msgByte, &msg)
+						if err != nil {
+							logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
+							continue
+						}
+						if msg.View != c.View {
+							continue
+						}
+						if !msg.VerifySignature() {
+							logger.Warningf("[Node.Run] msg.VerifySignature failed")
+							continue
+						}
+						if !msg.VerifyProof() {
+							logger.Warningf("[Node.Run] msg.VerifyProof failed")
+							continue
+						}
+						if _, ok := c.BlockPrepareMsg[string(msg.Id)]; !ok {
+							c.BlockPrepareMsg[string(msg.Id)] = map[string][]byte{}
+						}
+						//在这个地方验证收到区块消息的数量
+						c.BlockPrepareMsg[string(msg.Id)][msg.From] = msg.Proof
+						if _, ok := c.Block[string(msg.Id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(msg.Id)])) {
+							blockValidated := blockChain.NewBlockValidated(c.Block[string(msg.Id)].Block, c.BlockPrepareMsg[string(msg.Id)])
+							if blockValidated == nil {
+								logger.Warningf("[Node.Run] NewBlockValidated failed")
+								continue
+							}
+							fmt.Println("Road", 1)
+							c.ExecuteBlock(blockValidated)
+							delete(c.BlockPrepareMsg, string(msg.Id))
+							delete(c.Block, string(msg.Id))
+							break
+						}
+					}
+
+				}(TaskDistribute[hash])
+			}
 		case msgByte := <-service.DataSyncChan:
 			var msg blockChain.DataSyncMessage
 			err := json.Unmarshal(msgByte, &msg)
@@ -467,7 +488,7 @@ func (c *ConsensusMyBft) ReceiveOrder() {
 
 		// select {
 		// case a := <-c.IsValidaHost:
-		
+
 		// }
 	}
 }
@@ -477,36 +498,36 @@ func (c *ConsensusMyBft) handleOrder(msg Order) {
 	if proposal := messages.NewProposal(msg.ZoneName, msg.OptType, msg.Values); proposal != nil {
 		proposalByte, err := json.Marshal(proposal)
 		fmt.Println("hanleorder print proposal:", msg.OptType)
-		if (msg.OptType == 3) {
-			//res := "true"
-			fmt.Println("print true", proposal.ISValidHost)
-			c.IsValidaHost <- true
-		} else {
-			if err != nil {
-				logger.Warningf("[handleOrder] json.Marshal error=%v", err)
-				return
-			}
-			c.Mutex.Lock()
-			c.Proposals[string(proposal.Id)] = *proposal
-			c.proposalsTimer[string((proposal.Id))] = time.Now()
-			c.Replies[string(proposal.Id)] = map[string]uint8{}
-			ctx, cancelFunc := context.WithCancel(context.Background())
-			go c.timer(ctx, proposal)
-			c.Contexts[string(proposal.Id)] = cancelFunc
-			c.Mutex.Unlock()
-			c.PCount++
-			service.Net.BroadCast(proposalByte, service.ProposalMsg) //发布共识消息
+		//if msg.OptType == 3 {
+		//	//res := "true"
+		//	fmt.Println("print true", proposal.ISValidHost)
+		//	c.IsValidaHost <- true
+		//} else {
+		if err != nil {
+			logger.Warningf("[handleOrder] json.Marshal error=%v", err)
+			return
 		}
-		
+		c.Mutex.Lock()
+		c.Proposals[string(proposal.Id)] = *proposal
+		c.proposalsTimer[string((proposal.Id))] = time.Now()
+		c.Replies[string(proposal.Id)] = map[string]uint8{}
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		go c.timer(ctx, proposal)
+		c.Contexts[string(proposal.Id)] = cancelFunc
+		c.Mutex.Unlock()
+		c.PCount++
+		service.Net.BroadCast(proposalByte, service.ProposalMsg) //发布共识消息
+		//}
+
 	} else {
-		if (msg.OptType == 3) {
-			//res := "true"
-			fmt.Println("print false")
-			c.IsValidaHost <- false
-		}
+		//if msg.OptType == 3 {
+		//	//res := "true"
+		//	fmt.Println("print false")
+		//	c.IsValidaHost <- false
+		//}
 		logger.Warningf("[handleOrder] NewProposal failed")
 	}
-	
+
 }
 
 func (c *ConsensusMyBft) timer(ctx context.Context, proposal *messages.ProposalMessage) {
@@ -660,7 +681,9 @@ func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) {
 				break
 			}
 			c.SendReply(&b.Block)
-			c.Blocks = c.Blocks[1:]
+			if len(c.Blocks) > 1 {
+				c.Blocks = c.Blocks[1:]
+			}
 		} else {
 			break
 		}
@@ -687,6 +710,12 @@ func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) {
 			}
 		}
 	}
+	tmp, err := b.Block.Hash()
+	if err != nil {
+		logger.Warningf("hash error")
+	}
+	logger.Warningf(string(tmp[0]))
+
 }
 
 func (c *ConsensusMyBft) ModifyProposalState(msg *model.BlockMessage) {
@@ -769,7 +798,7 @@ func (c *ConsensusMyBft) generateBlock() {
 	if len(c.MessagePool.ProposalMessages) < blockChain.BlockMaxSize {
 		bound = len(c.MessagePool.ProposalMessages)
 	}
-	validP, abandonedP := CheckProposals(c.MessagePool.ProposalMessages[:bound])//验证消息是否合法
+	validP, abandonedP := CheckProposals(c.MessagePool.ProposalMessages[:bound]) //验证消息是否合法
 	block, err := blockChain.BlockChain.MineBlock(validP)
 	if err != nil {
 		logger.Warningf("[Leader.Run] MineBlock error=%v", err)
@@ -827,6 +856,7 @@ func (c *ConsensusMyBft) GetLatestBlock() (block model.BlockMessage, proofs map[
 	}
 	return
 }
+
 //1
 func (c *ConsensusMyBft) GetRecallBlock(h uint) model.BlockMessage {
 	for k, b := range c.ViewChangeMsgs {
@@ -940,7 +970,7 @@ func CheckProposals(proposals messages.ProposalMessages) (
 		} else {
 			drop := false
 			for _, tmpP := range filter[p.ZoneName] {
-				if reflect.DeepEqual(p.Id, tmpP.Id) {//?
+				if reflect.DeepEqual(p.Id, tmpP.Id) { //?
 					drop = true
 					break
 				}
@@ -950,7 +980,7 @@ func CheckProposals(proposals messages.ProposalMessages) (
 				tmpP := fp[len(fp)-1]
 				switch p.Type {
 				case messages.Add:
-					if tmpP.Owner != messages.Dereliction {//如果对域名记录修改的最后一条不是删除，则没办法对有owner的域名进行重复添加，就放弃
+					if tmpP.Owner != messages.Dereliction { //如果对域名记录修改的最后一条不是删除，则没办法对有owner的域名进行重复添加，就放弃
 						abandoneP.AddProposal(p)
 					} else { //如果最后一条是删除，就可以对无owner的域名进行添加
 						validP.AddProposal(p)

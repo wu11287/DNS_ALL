@@ -1,4 +1,5 @@
 package service
+
 //节点之间通信，8001，tcp
 import (
 	"BCDns_0.1/bcDns/conf"
@@ -23,21 +24,22 @@ var (
 	MaxPacketLength = 65536
 	Net             *DNet
 
-	ChanSize            = 1024
-	ProposalChan        chan []byte
-	BlockChan           chan []byte
-	BlockConfirmChan    chan []byte
-	BlockCommitChan     chan []byte
-	DataSyncChan        chan []byte
-	DataSyncRespChan    chan []byte
-	ProposalReplyChan   chan []byte
-	ProposalConfirmChan chan []byte
-	ViewChangeChan      chan []byte
-	NewViewChan         chan []byte
-	InitLeaderChan      chan []byte
+	ChanSize             = 1024
+	ProposalChan         chan []byte
+	BlockChan            chan []byte
+	BlockConfirmChan     chan []byte
+	BlockCommitChan      chan []byte
+	DataSyncChan         chan []byte
+	DataSyncRespChan     chan []byte
+	ProposalReplyChan    chan []byte
+	ProposalConfirmChan  chan []byte
+	ViewChangeChan       chan []byte
+	NewViewChan          chan []byte
+	InitLeaderChan       chan []byte
 	ValidateHostNameChan chan bool
-	JoinReplyChan       chan JoinReplyMessage
-	JoinChan            chan JoinMessage
+	JoinReplyChan        chan JoinReplyMessage
+	JoinChan             chan JoinMessage
+	MyBlockConfirmChan   chan []byte
 )
 
 func init() {
@@ -56,6 +58,7 @@ func init() {
 	InitLeaderChan = make(chan []byte, ChanSize)
 	JoinReplyChan = make(chan JoinReplyMessage, ChanSize)
 	JoinChan = make(chan JoinMessage, ChanSize)
+	MyBlockConfirmChan = make(chan []byte, ChanSize)
 
 }
 
@@ -137,7 +140,7 @@ func (n *DNet) handleConn(conn net.Conn) {
 		data     = make([]byte, 0)
 		needData bool
 	)
-    fmt.Println("handleConn")
+	fmt.Println("handleConn")
 	state := Packed
 	for {
 		dataBuf := make([]byte, MaxPacketLength)
@@ -148,10 +151,14 @@ func (n *DNet) handleConn(conn net.Conn) {
 				n.Mutex.Lock()
 				for i, member := range n.Members {
 					if strings.Compare(member.RemoteAddr, conn.RemoteAddr().String()) == 0 {
-						_ = n.Map[member.Name].Conn.Close()
-						delete(n.Map, member.Name)
-						n.Members = append(n.Members[:i], n.Members[i+1:]...)
-						break
+						if _, ok := n.Map[member.Name]; ok {
+							_ = n.Map[member.Name].Conn.Close()
+							delete(n.Map, member.Name)
+							n.Members = append(n.Members[:i], n.Members[i+1:]...)
+							break
+						} else {
+							break
+						}
 					}
 				}
 				if !service.CertificateAuthorityX509.Check(len(n.Members)) {
@@ -247,7 +254,7 @@ func (n *DNet) handleConn(conn net.Conn) {
 				ProposalChan <- msg.Payload
 			case ValidateHostName:
 				fmt.Println("ValidateHostName")
-				
+
 			case BlockMsg:
 				BlockChan <- msg.Payload
 			case BlockConfirmMsg:
@@ -284,7 +291,7 @@ func (n *DNet) handleConn(conn net.Conn) {
 // If non-node is reached, return error
 func (n *DNet) Join(seeds []string, t int) error {
 	if t > 10 {
-	        t = 10
+		t = 10
 	}
 	time.Sleep(time.Duration(t) * time.Second)
 	msg, err := NewJoinMessage()
@@ -335,7 +342,7 @@ func JoinNode(addr string) (net.Conn, error) {
 	return conn, nil
 }
 
-func (n *DNet)  BroadCast(payload []byte, t MessageTypeT) {
+func (n *DNet) BroadCast(payload []byte, t MessageTypeT) {
 	data, err := PackMessage(NewMessage(t, payload)) //返回一个message的结构体，包含payload和messagetype
 	if err != nil {
 		logger.Warningf("[Network] BroadCast json.Marshal error=%v", err)

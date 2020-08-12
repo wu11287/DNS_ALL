@@ -45,7 +45,6 @@ func (bs BlockSlice) PreviousBlock() *Block {
 type Block struct {
 	BlockHeader
 	messages.ProposalMessages
-	// 加个签名
 }
 
 type BlockHeader struct {
@@ -206,7 +205,6 @@ func UnMarshalBlockValidated(data []byte) (*BlockValidated, error) {
 	}
 	return b, nil
 }
-
 
 func (b *BlockValidated) VerifyBlockValidated() bool {
 	hash, err := b.Block.Hash() //blockheader
