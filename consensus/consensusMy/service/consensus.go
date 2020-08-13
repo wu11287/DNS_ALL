@@ -361,6 +361,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 						}
 					}
 				}(TaskDistribute[hash])
+				TaskDistribute[hash] <- &msg
 			}
 		case msgByte := <-service.DataSyncChan:
 			var msg blockChain.DataSyncMessage
