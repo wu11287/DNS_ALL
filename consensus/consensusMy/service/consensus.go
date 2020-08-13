@@ -295,6 +295,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 		case blockMsg := <-blockChan: //viewchange
 			c.ProcessBlockMessage(&blockMsg)
 		case msgByte := <-service.BlockChan: //leader
+			fmt.Println("enter -service.BlockChan")
 			if c.IsOnChanging() {
 				continue
 			}
@@ -304,12 +305,14 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
 				continue
 			}
-			id, err := msg.Block.Hash()
-			if err != nil {
+			//wuhui start
+			id, err1 := msg.Block.Hash()
+			if err1 != nil {
 				logger.Warningf("[Node.Run] block hash error", err)
 				continue
 			}
 			hash := string(id)
+			fmt.Println("hash:", hash)
 
 			if _, ok := TaskDistribute1[hash]; ok {
 				TaskDistribute1[hash] <- &msg
@@ -317,11 +320,14 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				TaskDistribute1[hash] = make(chan *model.BlockMessage) //仍然按照hash生成对应的协程，每个协程负责一个区块的验证
 				go func(pip chan *model.BlockMessage) {
 					for {
-						c.ProcessBlockMessage(&msg)
+						msg := <-pip //第一次进来的时候管道是没有数据的所以会一直阻塞
+						c.ProcessBlockMessage(msg)
 						break
 					}
 				}(TaskDistribute1[hash])
 			}
+			//wuhui end
+			//c.ProcessBlockMessage(&msg)
 		case msgByte := <-service.BlockConfirmChan:
 			var msg messages.BlockConfirmMessage
 			err := json.Unmarshal(msgByte, &msg)
@@ -571,7 +577,7 @@ func (c *ConsensusMyBft) ValidateBlock(msg *model.BlockMessage) uint8 {
 	}
 	if lastBlock.Height < msg.Block.Height-1 { //说明当前区块之前还有区块没有到达
 		StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
-		c.EnqueueBlockMessage(msg)
+		c.EnqueueBlockMessage(msg) //
 		return dataSync
 	}
 	if lastBlock.Height > msg.Block.Height-1 {
@@ -723,6 +729,7 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 	}
 	c.Block[string(id)] = *msg
 	c.ModifyProposalState(msg)
+	//注意这个BlockPrepareMessage
 	if _, ok := c.BlockPrepareMsg[string(id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(id)])) {
 		blockValidated := blockChain.NewBlockValidated(c.Block[string(id)].Block, c.BlockPrepareMsg[string(id)])
 		if blockValidated == nil {
@@ -777,6 +784,7 @@ func (c *ConsensusMyBft) generateBlock() {
 		return
 	}
 	service.Net.BroadCast(jsonData, service.BlockMsg)
+	//生成区块的时候会清空房前messagepool的所有提案？
 	c.MessagePool.Clear(bound)
 	c.PPPPcount += uint(bound)
 	c.BlockConfirm = false
