@@ -176,6 +176,7 @@ func (ca *CAX509) DelCert(Id string) error {
 	return nil
 }
 
+//证书数目控制
 func (ca *CAX509) GetSeeds() []string {
 	var seeds []string
 	for _, cert := range ca.Certificates {
@@ -220,7 +221,7 @@ func (ca *CAX509) Exits(id string) bool {
 	return ok
 }
 
-func (ca *CAX509)Check(n int) bool {
+func (ca *CAX509) Check(n int) bool {
 	ca.Mutex.Lock()
 	defer ca.Mutex.Unlock()
 

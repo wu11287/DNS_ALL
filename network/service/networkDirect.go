@@ -363,7 +363,7 @@ func (n *DNet) BroadCast(payload []byte, t MessageTypeT) {
 			}
 		}
 	} else {
-		for _, m := range n.Members {
+		for _, m := range n.Members { //ww
 			_, err := m.Send(data)
 			if err != nil {
 				logger.Warningf("[Network] BroadCast send error=%v", err)
