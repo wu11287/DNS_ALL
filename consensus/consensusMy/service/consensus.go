@@ -325,6 +325,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 						break
 					}
 				}(TaskDistribute1[hash])
+				TaskDistribute1[hash] <- &msg
 			}
 			//wuhui end
 			//c.ProcessBlockMessage(&msg)
