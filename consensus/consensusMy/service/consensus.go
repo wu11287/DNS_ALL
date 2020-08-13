@@ -289,7 +289,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				//leader节点将proposal消息打包组织成区块
 				if c.IsLeader() {
 					c.MessagePool.AddProposal(proposal)
-					if c.BlockConfirm && c.MessagePool.Size() >= blockChain.BlockMaxSize {
+					if c.BlockConfirm && c.MessagePool.Size() >= blockChain.BlockMaxSize { //Blockconfirm初始是true
 						c.generateBlock()
 					}
 				}
@@ -320,14 +320,12 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 
 			if _, ok := TaskDistribute[hash]; ok {
 				//传递过去
-				TaskDistribute[hash] <- &msg
+				TaskDistribute[hash] <- &msg //将解析后的数据传入管道
 			} else {
 				TaskDistribute[hash] = make(chan *messages.BlockConfirmMessage, 2048)
 				go func(pip chan *messages.BlockConfirmMessage) {
 					for {
-						res := <-pip
-						fmt.Println("pip:", string(res.Id))
-						err := json.Unmarshal(msgByte, &msg)
+						msg := <-pip
 						if err != nil {
 							logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
 							continue
@@ -362,7 +360,6 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 							break
 						}
 					}
-
 				}(TaskDistribute[hash])
 			}
 		case msgByte := <-service.DataSyncChan:
@@ -705,7 +702,7 @@ func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) {
 	if c.IsLeader() {
 		if height > c.UnConfirmedH {
 			c.BlockConfirm = true
-			if c.MessagePool.Size() >= 200 {
+			if c.MessagePool.Size() >= 1 { //change 200
 				c.generateBlock()
 			}
 		}
