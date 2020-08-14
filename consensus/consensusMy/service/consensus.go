@@ -76,6 +76,8 @@ type ConsensusMyBft struct {
 	JoinReplyMessages  map[string]service.JoinReplyMessage
 	JoinMessages       map[string]service.JoinMessage
 	InitLeaderMessages map[string]service.InitLeaderMessage
+
+	EnqueueRoutine map[string](model.BlockMessage)
 }
 
 type Order struct {
@@ -131,6 +133,7 @@ func NewConsensus() (model.ConsensusI, error) {
 		JoinMessages:       map[string]service.JoinMessage{},
 		JoinReplyMessages:  map[string]service.JoinReplyMessage{},
 		InitLeaderMessages: map[string]service.InitLeaderMessage{},
+		EnqueueRoutine:     map[string](model.BlockMessage){},
 	}
 	return consensus, nil
 }
@@ -759,6 +762,10 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 	}
 	c.Block[string(id)] = *msg
 	c.ModifyProposalState(msg)
+
+	//EnqueueRoutine := make(map[string](model.BlockMessage))
+	//EnqueueRoutine[string(id)] = *msg
+	c.EnqueueRoutine[string(id)] = *msg
 	if _, ok := c.BlockPrepareMsg[string(id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(id)])) {
 		blockValidated := blockChain.NewBlockValidated(c.Block[string(id)].Block, c.BlockPrepareMsg[string(id)])
 		if blockValidated == nil {
@@ -780,7 +787,10 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 			logger.Warningf("[Node.Run] json.Marshal error=%v", err)
 			return
 		}
-		service.Net.BroadCast(jsonData, service.BlockConfirmMsg)
+
+		for i := 0; i < len(c.EnqueueRoutine); i++ {
+			service.Net.BroadCast(jsonData, service.BlockConfirmMsg)
+		}
 	}
 }
 
