@@ -2,6 +2,7 @@
 
 cd /go/src/BCDns_0.1/bcDns/data
 
+#NF表示最后一列输出的时间，总时间/读取发送成功的条数
 latency=$(grep "execute successfully" run.log | awk '{sum+=$NF} END {print sum/NR}')
 
 l=0
@@ -24,6 +25,7 @@ do
     fi
 done<tmp.log
 
+//最后一条提案执行成功的时间-第一条提案执行开始的时间 + flatency（对最后一条执行成功的提案时间取整）
 gap=$(($timeEnd-$timeStart+$fLatency))
 
 amount=$(grep "execute successfully" run.log | wc -l)

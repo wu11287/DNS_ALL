@@ -496,9 +496,11 @@ func (c *ConsensusPBFT) handleOrder(msg Order) {
 		c.Proposals[string(proposal.Id)] = *proposal
 		c.proposalsTimer[string((proposal.Id))] = time.Now()
 		c.Replies[string(proposal.Id)] = map[string]uint8{}
+		///
 		ctx, cancelFunc := context.WithCancel(context.Background())
 		go c.timer(ctx, proposal)
 		c.Contexts[string(proposal.Id)] = cancelFunc
+		///
 		c.Mutex.Unlock()
 		c.PCount++
 		service.Net.BroadCast(proposalByte, service.ProposalMsg)
@@ -576,11 +578,13 @@ func (c *ConsensusPBFT) ValidateBlock(msg *model.BlockMessage) uint8 {
 		logger.Warningf("[Node.Run] lastBlock.Hash error=%v", err)
 		return invalid
 	}
+	// drop datasync
 	if lastBlock.Height < msg.Block.Height-1 {
 		StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
 		c.EnqueueBlockMessage(msg)
 		return dataSync
 	}
+	//
 	if lastBlock.Height > msg.Block.Height-1 {
 		logger.Warningf("[Node.Run] Block is out of time")
 		return invalid
@@ -770,8 +774,6 @@ func (c *ConsensusPBFT) ProcessBlockMessage(msg *model.BlockMessage) {
 	}
 }
 
-
-
 func (c *ConsensusPBFT) generateBlock() {
 	if !c.IsLeader() {
 		return
@@ -843,7 +845,6 @@ func (c *ConsensusPBFT) GetLatestBlock() (block model.BlockMessage, proofs map[s
 	}
 	return
 }
-
 
 func (c *ConsensusPBFT) GetRecallBlock(h uint) model.BlockMessage {
 	for k, b := range c.ViewChangeMsgs {

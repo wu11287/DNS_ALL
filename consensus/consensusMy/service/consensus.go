@@ -63,7 +63,7 @@ type ConsensusMyBft struct {
 
 	//Leader role
 	MessagePool  messages.ProposalMessagePool
-	BlockConfirm bool
+	BlockConfirm bool //收到2f+1个节点验证，就会将它改成true、进行下一个区块（3f+1）
 	UnConfirmedH uint
 	PPPcount     uint
 	PPPPcount    uint
