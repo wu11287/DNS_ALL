@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"github.com/izqui/helpers"
 	"reflect"
 )
@@ -24,6 +25,7 @@ var (
 )
 
 func CheckProofOfWork(prefix []byte, hash []byte) bool {
+	fmt.Println(len(ProposalPOW)) //1
 	if len(prefix) > 0 {
 		return reflect.DeepEqual(prefix, hash[:len(prefix)])
 	}

@@ -23,7 +23,7 @@ func init() {
 	ZoneStatePool, err = NewZoneStatePool()
 	if err != nil {
 		fmt.Printf("[ZoneStatePool error=%v]", err)
-		panic(err)
+		panic(err) //数据库打开未关闭
 	}
 }
 
@@ -46,14 +46,14 @@ func (z *ZoneStatePoolT) GetModifiedData() (map[string]ZoneRecord, error) {
 	result := make(map[string]ZoneRecord)
 	for iter.Next() {
 		zoneName := string(iter.Key())
-		record, err := BlockChain.FindDomain(zoneName)//record是一个ProposalMessage
+		record, err := BlockChain.FindDomain(zoneName) //record是一个ProposalMessage
 		if err != nil {
 			fmt.Println("[ZoneStatePool] BlockChain.FindDomain error", err)
 			continue
 		}
 		result[zoneName] = ZoneRecord{
 			Owner:  record.Owner,
-			Values: record.Values,//表示RRs
+			Values: record.Values, //表示RRs
 		}
 		_ = z.DB.Delete(iter.Key(), nil)
 	}

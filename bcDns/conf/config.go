@@ -19,6 +19,7 @@ type Config struct {
 
 	ProposalBufferSize int
 	ProposalTimeout    time.Duration
+	RetryTimeout       time.Duration
 
 	LeaderMsgBufferSize int
 	PowDifficult        int
@@ -71,6 +72,7 @@ func init() {
 	}
 	BCDnsConfig.ProposalBufferSize = 10000
 	BCDnsConfig.ProposalTimeout = 30 * time.Second
+	BCDnsConfig.RetryTimeout = 30 * time.Second
 	c := viper.GetInt("CONFIGINTERVAL")
 	BCDnsConfig.ConfigInterval = time.Duration(c) * time.Second
 }

@@ -1,10 +1,10 @@
 package main
 
 import (
+	"BCDns_0.1/bcDns/conf"
+	"C"
 	"fmt"
 	"time"
-	"C"
-	"BCDns_0.1/bcDns/conf"
 	//	"BCDns_0.1/bind9Config"
 	blockChain2 "BCDns_0.1/blockChain"
 	service2 "BCDns_0.1/certificateAuthority/service"
@@ -12,9 +12,9 @@ import (
 	pbft "BCDns_0.1/consensus/consensusPBFT/service"
 	"BCDns_0.1/consensus/model"
 	dao2 "BCDns_0.1/dao"
+	"BCDns_0.1/messages"
 	service3 "BCDns_0.1/network/service"
 	"BCDns_0.1/utils"
-	"BCDns_0.1/messages"
 )
 
 var (
@@ -91,7 +91,7 @@ func Start() {
 }
 
 //export CheckRRs
-func CheckRRs(zoneNameBytes []byte, t int, rrBytes []byte) int {//域名和资源记录
+func CheckRRs(zoneNameBytes []byte, t int, rrBytes []byte) int { //域名和资源记录
 	var i uint8
 
 	rrCount := uint8(zoneNameBytes[0])

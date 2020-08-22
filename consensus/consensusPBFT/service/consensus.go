@@ -644,6 +644,7 @@ func (c *ConsensusPBFT) EnqueueBlock(block blockChain.BlockValidated) {
 	}
 }
 
+//执行区块之前肯定经过了2f+1个节点的验证---剩下的f个节点不一定？
 func (c *ConsensusPBFT) ExecuteBlock(b *blockChain.BlockValidated) {
 	lastBlock, err := blockChain.BlockChain.GetLatestBlock()
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"github.com/op/go-logging"
 	"net"
+	"pkg/mod/github.com/op/go-logging@v0.0.0-20160315200505-970db520ece7"
 	"reflect"
 	"sync"
 	"time"
@@ -63,7 +64,7 @@ type ConsensusMyBft struct {
 
 	//Leader role
 	MessagePool  messages.ProposalMessagePool
-	BlockConfirm bool //收到2f+1个节点验证，就会将它改成true、进行下一个区块（3f+1）
+	BlockConfirm bool //确保上个共识已经完成
 	UnConfirmedH uint
 	PPPcount     uint
 	PPPPcount    uint
@@ -138,6 +139,7 @@ func NewConsensus() (model.ConsensusI, error) {
 	return consensus, nil
 }
 
+//select leader
 func (c *ConsensusMyBft) Start(done chan uint) {
 	for {
 		select {
@@ -152,6 +154,7 @@ func (c *ConsensusMyBft) Start(done chan uint) {
 				continue
 			}
 			c.JoinReplyMessages[msg.From] = msg
+			//超过2f+1节点进行leader的选举
 			if service2.CertificateAuthorityX509.Check(len(c.JoinReplyMessages) + len(c.JoinMessages)) {
 				initLeaderMsg, err := service.NewInitLeaderMessage(service.Net.GetAllNodeIds())
 				if err != nil {
@@ -283,7 +286,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				continue
 			}
 			c.PPPcount++
-			if _, exist := c.ProposalsCache[string(proposal.Id)]; !exist {
+			if _, exist := c.ProposalsCache[string(proposal.Id)]; !exist { //强制类型转换的时候可能存在两个proposal的转换后id相同
 				if !c.handleProposal(proposal) { //valide suit？
 					continue
 				}
@@ -498,7 +501,7 @@ func (c *ConsensusMyBft) handleOrder(msg Order) {
 	fmt.Println("handleOrder")
 	if proposal := messages.NewProposal(msg.ZoneName, msg.OptType, msg.Values); proposal != nil {
 		proposalByte, err := json.Marshal(proposal)
-		fmt.Println("hanleorder print proposal:", msg.OptType)
+		fmt.Println("handleorder print proposal:", msg.OptType)
 		//if msg.OptType == 3 {
 		//	//res := "true"
 		//	fmt.Println("print true", proposal.ISValidHost)
@@ -564,6 +567,22 @@ func (c *ConsensusMyBft) timer(ctx context.Context, proposal *messages.ProposalM
 	}
 }
 
+func (c *ConsensusMyBft) timer_sync(ctx context.Context, msg *model.BlockMessage) {
+	select {
+	case <-time.After(conf.BCDnsConfig.RetryTimeout):
+		c.Mutex.Lock()
+		defer c.Mutex.Unlock()
+		lastBlock, err := blockChain.BlockChain.GetLatestBlock()
+		if err != nil {
+			logger.Warningf("[Node.Run] DataSync GetLatestBlock error=%v", err)
+		}
+		StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
+		c.EnqueueBlockMessage(msg)
+	case <-ctx.Done():
+	}
+	return
+}
+
 func (*ConsensusMyBft) handleProposal(proposal messages.ProposalMessage) bool {
 	switch proposal.Type {
 	case messages.Add:
@@ -601,8 +620,11 @@ func (c *ConsensusMyBft) ValidateBlock(msg *model.BlockMessage) uint8 {
 		return invalid
 	}
 	if lastBlock.Height < msg.Block.Height-1 { //说明当前区块之前还有区块没有到达
-		StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
-		c.EnqueueBlockMessage(msg)
+		//此时进行tcp的重传
+		ctx, _ := context.WithCancel(context.Background())
+		go c.timer_sync(ctx, msg)
+		//StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
+		//c.EnqueueBlockMessage(msg) //3
 		return dataSync
 	}
 	if lastBlock.Height > msg.Block.Height-1 {
@@ -705,7 +727,7 @@ func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) {
 	}
 	if c.IsLeader() {
 		if height > c.UnConfirmedH {
-			c.BlockConfirm = true
+			c.BlockConfirm = true          //free
 			if c.MessagePool.Size() >= 1 { //change 200
 				c.generateBlock()
 			}
@@ -765,7 +787,8 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 
 	//EnqueueRoutine := make(map[string](model.BlockMessage))
 	//EnqueueRoutine[string(id)] = *msg
-	c.EnqueueRoutine[string(id)] = *msg
+	c.EnqueueRoutine[string(id)] = *msg //区块排队
+	//BlockPrepareMsg表示收到确认的提案的个数
 	if _, ok := c.BlockPrepareMsg[string(id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(id)])) {
 		blockValidated := blockChain.NewBlockValidated(c.Block[string(id)].Block, c.BlockPrepareMsg[string(id)])
 		if blockValidated == nil {
