@@ -9,13 +9,11 @@ import (
 	"BCDns_0.1/consensus/model"
 	"BCDns_0.1/messages"
 	"BCDns_0.1/network/service"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/op/go-logging"
 	"net"
-	"pkg/mod/github.com/op/go-logging@v0.0.0-20160315200505-970db520ece7"
 	"reflect"
 	"sync"
 	"time"
@@ -63,11 +61,12 @@ type ConsensusMyBft struct {
 	PPCount         uint
 
 	//Leader role
-	MessagePool  messages.ProposalMessagePool
-	BlockConfirm bool //确保上个共识已经完成
-	UnConfirmedH uint
-	PPPcount     uint
-	PPPPcount    uint
+	MessagePool      messages.ProposalMessagePool
+	BlockConfirm     bool //确保上个共识已经完成
+	UnConfirmedH     uint
+	UnConfirmedBlock uint
+	PPPcount         uint
+	PPPPcount        uint
 
 	//View role
 	OnChange           bool
@@ -78,6 +77,7 @@ type ConsensusMyBft struct {
 	JoinMessages       map[string]service.JoinMessage
 	InitLeaderMessages map[string]service.InitLeaderMessage
 
+	//@wuhui
 	EnqueueRoutine map[string](model.BlockMessage)
 }
 
@@ -361,6 +361,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 							}
 							fmt.Println("Road", 1)
 							c.ExecuteBlock(blockValidated)
+							c.UnConfirmedBlock--
 							delete(c.BlockPrepareMsg, string(msg.Id))
 							delete(c.Block, string(msg.Id))
 							break
@@ -614,27 +615,25 @@ func (c *ConsensusMyBft) ValidateBlock(msg *model.BlockMessage) uint8 {
 		logger.Warningf("[Node.Run] DataSync GetLatestBlock error=%v", err)
 		return invalid
 	}
-	prevHash, err := lastBlock.Hash()
+	//prevHash, err := lastBlock.Hash()
 	if err != nil {
 		logger.Warningf("[Node.Run] lastBlock.Hash error=%v", err)
 		return invalid
 	}
+	//if lastBlock.Height + c.UnConfirmedBlock < msg.Block.Height - 1 {
 	if lastBlock.Height < msg.Block.Height-1 { //说明当前区块之前还有区块没有到达
-		//此时进行tcp的重传
-		ctx, _ := context.WithCancel(context.Background())
-		go c.timer_sync(ctx, msg)
 		//StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
-		//c.EnqueueBlockMessage(msg) //3
+		c.EnqueueBlockMessage(msg)
 		return dataSync
 	}
 	if lastBlock.Height > msg.Block.Height-1 {
 		logger.Warningf("[Node.Run] Block is out of time")
 		return invalid
 	}
-	if bytes.Compare(msg.Block.PrevBlock, prevHash) != 0 {
-		logger.Warningf("[Node.Run] PrevBlock is invalid")
-		return invalid
-	}
+	//if bytes.Compare(msg.Block.PrevBlock, prevHash) != 0 {
+	//	logger.Warningf("[Node.Run] PrevBlock is invalid")
+	//	return invalid
+	//}
 	if !msg.VerifyBlock() {
 		logger.Warningf("[ValidateBlock] VerifyBlock failed")
 		return invalid
@@ -704,9 +703,9 @@ func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) {
 				break
 			}
 			c.SendReply(&b.Block)
-			if len(c.Blocks) > 1 {
-				c.Blocks = c.Blocks[1:]
-			}
+			//	if len(c.Blocks) > 1 {
+			c.Blocks = c.Blocks[1:]
+			//	}
 		} else {
 			break
 		}
@@ -782,11 +781,10 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 		logger.Warningf("[Node.Run] block is invalid")
 		return
 	}
+	c.UnConfirmedBlock++
 	c.Block[string(id)] = *msg
 	c.ModifyProposalState(msg)
 
-	//EnqueueRoutine := make(map[string](model.BlockMessage))
-	//EnqueueRoutine[string(id)] = *msg
 	c.EnqueueRoutine[string(id)] = *msg //区块排队
 	//BlockPrepareMsg表示收到确认的提案的个数
 	if _, ok := c.BlockPrepareMsg[string(id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(id)])) {
@@ -797,6 +795,7 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 		}
 		fmt.Println("Road", 3)
 		c.ExecuteBlock(blockValidated)
+		c.UnConfirmedBlock--
 		delete(c.BlockPrepareMsg, string(id))
 		delete(c.Block, string(id))
 	} else {
