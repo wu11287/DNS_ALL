@@ -9,7 +9,9 @@ import (
 	"BCDns_0.1/consensus/model"
 	"BCDns_0.1/messages"
 	"BCDns_0.1/network/service"
-	"bytes"
+	"pkg/mod/github.com/op/go-logging@v0.0.0-20160315200505-970db520ece7"
+
+	//"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,9 +35,10 @@ const (
 )
 
 var (
-	blockChan  chan model.BlockMessage
-	logger     *logging.Logger // package-level logger
-	UdpAddress = "127.0.0.1:8888"
+	blockChan chan model.BlockMessage
+	logger    *logging.Logger // package-level logger
+	//UdpAddress = "127.0.0.1:8888"
+	TcpAddress = "127.0.0.1:8888"
 )
 
 type ConsensusMyBft struct {
@@ -46,10 +49,11 @@ type ConsensusMyBft struct {
 	proposalsTimer map[string]time.Time
 	Replies        map[string]map[string]uint8
 	Contexts       map[string]context.CancelFunc
-	Conn           *net.UDPConn
-	OrderChan      chan []byte
-	IsValidaHost   chan bool
-	PCount         uint
+	//Conn           *net.UDPConn
+	Listener     *net.TCPListener
+	OrderChan    chan []byte
+	IsValidaHost chan bool
+	PCount       uint
 
 	//Node role
 	ProposalsCache  map[string]uint8            // need clean used for start view change
@@ -60,11 +64,12 @@ type ConsensusMyBft struct {
 	PPCount         uint
 
 	//Leader role
-	MessagePool  messages.ProposalMessagePool
-	BlockConfirm bool
-	UnConfirmedH uint
-	PPPcount     uint
-	PPPPcount    uint
+	MessagePool      messages.ProposalMessagePool
+	BlockConfirm     bool
+	UnConfirmedH     uint
+	UnConfirmedBlock uint
+	PPPcount         uint
+	PPPPcount        uint
 
 	//View role
 	OnChange           bool
@@ -91,11 +96,13 @@ func init() {
 
 func NewConsensus() (model.ConsensusI, error) {
 	fmt.Println("NewConsensus")
-	udpaddr, err := net.ResolveUDPAddr("udp", UdpAddress)
+	//udpaddr, err := net.ResolveUDPAddr("udp", UdpAddress)
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", TcpAddress)
 	if err != nil {
 		panic(err)
 	}
-	conn, err := net.ListenUDP("udp", udpaddr)
+	//conn, err := net.ListenUDP("udp", udpaddr)
+	listener, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
 		panic(err)
 	}
@@ -106,9 +113,10 @@ func NewConsensus() (model.ConsensusI, error) {
 		proposalsTimer: map[string]time.Time{},
 		Replies:        map[string]map[string]uint8{},
 		Contexts:       map[string]context.CancelFunc{},
-		Conn:           conn,
-		OrderChan:      make(chan []byte, 1024),
-		IsValidaHost:   make(chan bool),
+		//Conn:           conn,
+		Listener:     listener,
+		OrderChan:    make(chan []byte, 1024),
+		IsValidaHost: make(chan bool),
 
 		ProposalsCache:  map[string]uint8{},
 		Blocks:          []blockChain.BlockValidated{},
@@ -116,9 +124,10 @@ func NewConsensus() (model.ConsensusI, error) {
 		Block:           map[string]model.BlockMessage{},
 		BlockPrepareMsg: map[string]map[string][]byte{},
 
-		MessagePool:  messages.NewProposalMessagePool(),
-		BlockConfirm: true,
-		UnConfirmedH: 0,
+		MessagePool:      messages.NewProposalMessagePool(),
+		BlockConfirm:     true,
+		UnConfirmedH:     0,
+		UnConfirmedBlock: 0,
 
 		OnChange:           false,
 		View:               -1,
@@ -145,7 +154,10 @@ func (c *ConsensusMyBft) Start(done chan uint) {
 				continue
 			}
 			c.JoinReplyMessages[msg.From] = msg
-			if service2.CertificateAuthorityX509.Check(len(c.JoinReplyMessages) + len(c.JoinMessages)) {
+			//整个系统中有2f+1个节点的时候启动
+			//if service2.CertificateAuthorityX509.Check(len(c.JoinReplyMessages) + len(c.JoinMessages)) {
+			//3f+1全部建立连接再跑
+			if len(c.JoinReplyMessages)+len(c.JoinMessages) == service2.CertificateAuthorityX509.GetNetworkSize() {
 				initLeaderMsg, err := service.NewInitLeaderMessage(service.Net.GetAllNodeIds())
 				if err != nil {
 					logger.Warningf("[ViewManagerT.Start] NewInitLeaderMessage error=%v", err)
@@ -171,7 +183,8 @@ func (c *ConsensusMyBft) Start(done chan uint) {
 			}
 			service.Net.SendTo(jsonData, service.JoinReplyMsg, msg.From)
 			c.JoinMessages[msg.From] = msg
-			if c.View == -1 && service2.CertificateAuthorityX509.Check(len(c.JoinReplyMessages)+len(c.JoinMessages)) {
+			//if c.View == -1 && service2.CertificateAuthorityX509.Check(len(c.JoinReplyMessages)+len(c.JoinMessages)) {
+			if c.View == -1 && len(c.JoinReplyMessages)+len(c.JoinMessages) == service2.CertificateAuthorityX509.GetNetworkSize() {
 				initLeaderMsg, err := service.NewInitLeaderMessage(service.Net.GetAllNodeIds())
 				if err != nil {
 					logger.Warningf("[ViewManagerT.Start] NewInitLeaderMessage error=%v", err)
@@ -245,6 +258,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 			c.Mutex.Lock()
 			if _, ok := c.Proposals[string(msg.Id)]; ok {
 				c.Replies[string(msg.Id)][msg.From] = 0
+				//收到来自2f+1个节点的reply
 				if service2.CertificateAuthorityX509.Check(len(c.Replies[string(msg.Id)])) {
 					fmt.Printf("%v %v %v %v %v [Proposer.Run] ProposalMsgT execute successfully %v %v\n", time.Now().Unix(), c.PCount,
 						c.PPCount, c.PPPcount, c.PPPPcount, c.Proposals[string(msg.Id)],
@@ -257,7 +271,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 			}
 			c.Mutex.Unlock()
 		case msgByte := <-c.OrderChan:
-			fmt.Println("orderchan")
+			fmt.Println("OrderChan")
 			fmt.Println(string(msgByte)) //此时拿到了客户端传递过来的数据
 			var msg Order
 			err = json.Unmarshal(msgByte, &msg)
@@ -284,18 +298,10 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				//leader节点将proposal消息打包组织成区块
 				if c.IsLeader() {
 					c.MessagePool.AddProposal(proposal)
-					if c.BlockConfirm && c.MessagePool.Size() >= blockChain.BlockMaxSize {
+					if c.BlockConfirm && c.MessagePool.Size() >= blockChain.BlockMaxSize { //前提是当前没有区块在共识
 						c.generateBlock()
 					}
 				}
-				//} else {
-				//	name, err := utils.GetCertId(*service2.CertificateAuthorityX509.CertificatesOrder[c.LeaderId])
-				//	if err != nil {
-				//		logger.Warningf("[SendToLeader] GetCertId failed err=%v", err)
-				//		continue
-				//	}
-				//	service.Net.SendTo(msgByte, service.ProposalMsg, name)
-				//}
 			}
 		case blockMsg := <-blockChan:
 			c.ProcessBlockMessage(&blockMsg)
@@ -333,6 +339,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				c.BlockPrepareMsg[string(msg.Id)] = map[string][]byte{}
 			}
 			c.BlockPrepareMsg[string(msg.Id)][msg.From] = msg.Proof
+			//
 			if _, ok := c.Block[string(msg.Id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(msg.Id)])) {
 				blockValidated := blockChain.NewBlockValidated(c.Block[string(msg.Id)].Block, c.BlockPrepareMsg[string(msg.Id)])
 				if blockValidated == nil {
@@ -341,6 +348,7 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				}
 				fmt.Println("Road", 1)
 				c.ExecuteBlock(blockValidated)
+				c.UnConfirmedBlock--
 				delete(c.BlockPrepareMsg, string(msg.Id))
 				delete(c.Block, string(msg.Id))
 			}
@@ -370,7 +378,10 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				logger.Warningf("[Node.Run json.Marshal error=%v", err)
 				continue
 			}
-			service.Net.SendTo(jsonData, service.DataSyncRespMsg, msg.From)
+			//if c.IsLeader() {
+			//	service.Net.SendTo(jsonData, service.DataSyncRespMsg, msg.From)
+			//}
+			service.Net.SendTcdo(jsonData, service.DataSyncRespMsg, msg.From)
 		case msgByte := <-service.DataSyncRespChan:
 			var msg blockChain.DataSyncRespMessage
 			err := json.Unmarshal(msgByte, &msg)
@@ -440,6 +451,34 @@ func (c *ConsensusMyBft) Run(done chan uint) {
 				continue
 			}
 			c.ProcessNewViewMsg(&msg)
+		//@wuhui
+		case msgByte := <-service.DataSyncLeaderChan:
+			var msg blockChain.DataSyncMessage
+			err := json.Unmarshal(msgByte, &msg)
+			if err != nil {
+				logger.Warningf("[Node.Run] json.Unmarshal error=%v", err)
+				continue
+			}
+			if !msg.VerifySignature() {
+				logger.Warningf("[Node.Run] DataSyncMessage.VerifySignature failed")
+				continue
+			}
+			block, err := blockChain.BlockChain.GetBlockByHeight(msg.Height)
+			if err != nil {
+				logger.Warningf("[Node.Run] GetBlockByHeight error=%v", err)
+				continue
+			}
+			respMsg, err := blockChain.NewDataSyncRespMessage(block)
+			if err != nil {
+				logger.Warningf("[Node.Run] NewDataSyncRespMessage error=%v", err)
+				continue
+			}
+			jsonData, err := json.Marshal(respMsg)
+			if err != nil {
+				logger.Warningf("[Node.Run json.Marshal error=%v", err)
+				continue
+			}
+			service.Net.SendTo(jsonData, service.DataSyncRespMsg, msg.From)
 		}
 	}
 }
@@ -457,18 +496,6 @@ func (c *ConsensusMyBft) ReceiveOrder() {
 			continue
 		}
 		c.OrderChan <- data[:len]
-		//f := <-c.IsValidaHost
-		//if (f) {
-		//	c.Conn.WriteToUDP([]byte("true"), clientAddr)
-		//} else {
-		//	c.Conn.WriteToUDP([]byte("false"), clientAddr)
-		//
-		//}
-
-		// select {
-		// case a := <-c.IsValidaHost:
-
-		// }
 	}
 }
 
@@ -477,33 +504,33 @@ func (c *ConsensusMyBft) handleOrder(msg Order) {
 	if proposal := messages.NewProposal(msg.ZoneName, msg.OptType, msg.Values); proposal != nil {
 		proposalByte, err := json.Marshal(proposal)
 		fmt.Println("hanleorder print proposal:", msg.OptType)
-		if msg.OptType == 3 {
-			//res := "true"
-			fmt.Println("print true", proposal.ISValidHost)
-			c.IsValidaHost <- true
-		} else {
-			if err != nil {
-				logger.Warningf("[handleOrder] json.Marshal error=%v", err)
-				return
-			}
-			c.Mutex.Lock()
-			c.Proposals[string(proposal.Id)] = *proposal
-			c.proposalsTimer[string((proposal.Id))] = time.Now()
-			c.Replies[string(proposal.Id)] = map[string]uint8{}
-			ctx, cancelFunc := context.WithCancel(context.Background())
-			go c.timer(ctx, proposal)
-			c.Contexts[string(proposal.Id)] = cancelFunc
-			c.Mutex.Unlock()
-			c.PCount++
-			service.Net.BroadCast(proposalByte, service.ProposalMsg) //发布共识消息
+		//if msg.OptType == 3 {
+		//	//res := "true"
+		//	fmt.Println("print true", proposal.ISValidHost)
+		//	c.IsValidaHost <- true
+		//} else {
+		if err != nil {
+			logger.Warningf("[handleOrder] json.Marshal error=%v", err)
+			return
 		}
+		c.Mutex.Lock()
+		c.Proposals[string(proposal.Id)] = *proposal
+		c.proposalsTimer[string((proposal.Id))] = time.Now()
+		c.Replies[string(proposal.Id)] = map[string]uint8{}
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		go c.timer(ctx, proposal)
+		c.Contexts[string(proposal.Id)] = cancelFunc
+		c.Mutex.Unlock()
+		c.PCount++
+		service.Net.BroadCast(proposalByte, service.ProposalMsg) //发布共识消息
+		//}
 
 	} else {
-		if msg.OptType == 3 {
-			//res := "true"
-			fmt.Println("print false")
-			c.IsValidaHost <- false
-		}
+		//if msg.OptType == 3 {
+		//	//res := "true"
+		//	fmt.Println("print false")
+		//	c.IsValidaHost <- false
+		//}
 		logger.Warningf("[handleOrder] NewProposal failed")
 	}
 
@@ -573,24 +600,25 @@ func (c *ConsensusMyBft) ValidateBlock(msg *model.BlockMessage) uint8 {
 		logger.Warningf("[Node.Run] DataSync GetLatestBlock error=%v", err)
 		return invalid
 	}
-	prevHash, err := lastBlock.Hash()
+	//prevHash, err := lastBlock.Hash()
 	if err != nil {
 		logger.Warningf("[Node.Run] lastBlock.Hash error=%v", err)
 		return invalid
 	}
-	if lastBlock.Height < msg.Block.Height-1 { //说明当前区块之前还有区块没有到达
-		StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
+	if lastBlock.Height+c.UnConfirmedBlock < msg.Block.Height-1 {
+		//if lastBlock.Height < msg.Block.Height-1 { //说明当前区块之前还有区块没有到达
+		//StartDataSync(lastBlock.Height+1, msg.Block.Height-1)
 		c.EnqueueBlockMessage(msg)
-		return dataSync
+		//return dataSync
 	}
 	if lastBlock.Height > msg.Block.Height-1 {
 		logger.Warningf("[Node.Run] Block is out of time")
 		return invalid
 	}
-	if bytes.Compare(msg.Block.PrevBlock, prevHash) != 0 {
-		logger.Warningf("[Node.Run] PrevBlock is invalid")
-		return invalid
-	}
+	//if bytes.Compare(msg.Block.PrevBlock, prevHash) != 0 {
+	//	logger.Warningf("[Node.Run] PrevBlock is invalid")
+	//	return invalid
+	//}
 	if !msg.VerifyBlock() {
 		logger.Warningf("[ValidateBlock] VerifyBlock failed")
 		return invalid
@@ -642,14 +670,30 @@ func (c *ConsensusMyBft) EnqueueBlock(block blockChain.BlockValidated) {
 	}
 }
 
-func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) {
+func (c *ConsensusMyBft) timer_sync(ctx context.Context, height uint) {
+	select {
+	case <-time.After(conf.BCDnsConfig.ProposalTimeout): //10s
+		c.Mutex.Lock()
+		defer c.Mutex.Unlock()
+		lastBlock, err := blockChain.BlockChain.GetLatestBlock()
+		if err != nil {
+			logger.Warningf("[Node.Run] ExecuteBlock GetLatestBlock error=%v", err)
+			return
+		}
+		c.StartDataSync(lastBlock.Height+1, height)
+	case <-ctx.Done():
+	}
+}
+
+//只从
+func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) { //3，Miss 2
 	lastBlock, err := blockChain.BlockChain.GetLatestBlock()
 	if err != nil {
 		logger.Warningf("[Node.Run] ExecuteBlock GetLatestBlock error=%v", err)
 		return
 	}
 	c.EnqueueBlock(*b)
-	h := lastBlock.Height + 1
+	h := lastBlock.Height + 1 //当前自己blockchain里的区块高度+1 == 2
 	for _, bb := range c.Blocks {
 		if bb.Height < h {
 			c.Blocks = c.Blocks[1:]
@@ -661,13 +705,18 @@ func (c *ConsensusMyBft) ExecuteBlock(b *blockChain.BlockValidated) {
 			}
 			c.SendReply(&b.Block)
 			c.Blocks = c.Blocks[1:]
-		} else {
-			break
+		} else { //表明缺少区块，此时应该触发数据同步---等待的时间会数据重传吗？
+			ctx, _ := context.WithCancel(context.Background())
+			go c.timer_sync(ctx, bb.Height)
+			//break
+			continue
 		}
 		h++
 	}
 	height := h
+	//
 	for _, msg := range c.BlockMessages {
+		fmt.Println("BlockMessages's length:", len(c.BlockMessages))
 		if msg.Height < h {
 			c.BlockMessages = c.BlockMessages[1:]
 			c.ModifyProposalState(&msg)
@@ -724,12 +773,13 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 		return
 	}
 	switch c.ValidateBlock(msg) {
-	case dataSync:
-		return
+	//case dataSync:
+	//	return
 	case invalid:
 		logger.Warningf("[Node.Run] block is invalid")
 		return
 	}
+	c.UnConfirmedBlock++
 	c.Block[string(id)] = *msg
 	c.ModifyProposalState(msg)
 	if _, ok := c.BlockPrepareMsg[string(id)]; ok && service2.CertificateAuthorityX509.Check(len(c.BlockPrepareMsg[string(id)])) {
@@ -740,6 +790,7 @@ func (c *ConsensusMyBft) ProcessBlockMessage(msg *model.BlockMessage) {
 		}
 		fmt.Println("Road", 3)
 		c.ExecuteBlock(blockValidated)
+		c.UnConfirmedBlock--
 		delete(c.BlockPrepareMsg, string(id))
 		delete(c.Block, string(id))
 	} else {
@@ -911,7 +962,7 @@ func (c *ConsensusMyBft) ProcessNewViewMsg(msg *model.NewViewMessage) {
 		return
 	}
 	if lastBlock.Height < msg.Height {
-		StartDataSync(lastBlock.Height+1, msg.Height)
+		c.StartDataSync(lastBlock.Height+1, msg.Height)
 		if msg.BlockMsg.TimeStamp != 0 {
 			c.EnqueueBlockMessage(&msg.BlockMsg)
 		}
@@ -983,7 +1034,7 @@ func ValidateProposals(msg *model.BlockMessage) bool {
 	return reflect.DeepEqual(validP, msg.ProposalMessages)
 }
 
-func StartDataSync(lastH, h uint) {
+func (c *ConsensusMyBft) StartDataSync(lastH, h uint) {
 	for i := lastH; i <= h; i++ {
 		syncMsg, err := blockChain.NewDataSyncMessage(i)
 		if err != nil {
@@ -995,6 +1046,8 @@ func StartDataSync(lastH, h uint) {
 			logger.Warningf("[DataSync] json.Marshal error=%v", err)
 			continue
 		}
-		service.Net.BroadCast(jsonData, service.DataSyncMsg)
+		//直接向主节点发出区块请求
+		//service.Net.BroadCast(jsonData, service.DataSyncMsg)
+		service.Net.SendTo(jsonData, service.DataSyncMsg, service2.CertificateAuthorityX509.CertificatesOrder[c.LeaderId].Subject.CommonName)
 	}
 }

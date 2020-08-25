@@ -54,11 +54,11 @@ func (err CheckSigFailedErr) Error() string {
 }
 
 type CAX509 struct {
-	Mutex             sync.Mutex
-	Certificates      map[string]x509.Certificate
-	CertificatesOrder []*x509.Certificate
-	NodeId            int64
-	PrivateKey        *rsa.PrivateKey
+	Mutex              sync.Mutex
+	Certificates       map[string]x509.Certificate
+	iCertificatesOrder []*x509.Certificate
+	NodeId             int64
+	PrivateKey         *rsa.PrivateKey
 }
 
 func init() {

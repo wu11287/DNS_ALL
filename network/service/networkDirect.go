@@ -1,4 +1,5 @@
 package service
+
 //节点之间通信，8001，tcp
 import (
 	"BCDns_0.1/bcDns/conf"
@@ -9,7 +10,6 @@ import (
 	"github.com/op/go-logging"
 	"github.com/sasha-s/go-deadlock"
 	"io"
-	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -23,21 +23,23 @@ var (
 	MaxPacketLength = 65536
 	Net             *DNet
 
-	ChanSize            = 1024
-	ProposalChan        chan []byte
-	BlockChan           chan []byte
-	BlockConfirmChan    chan []byte
-	BlockCommitChan     chan []byte
-	DataSyncChan        chan []byte
-	DataSyncRespChan    chan []byte
-	ProposalReplyChan   chan []byte
-	ProposalConfirmChan chan []byte
-	ViewChangeChan      chan []byte
-	NewViewChan         chan []byte
-	InitLeaderChan      chan []byte
+	ChanSize             = 1024
+	ProposalChan         chan []byte
+	BlockChan            chan []byte
+	BlockConfirmChan     chan []byte
+	BlockCommitChan      chan []byte
+	DataSyncChan         chan []byte
+	DataSyncRespChan     chan []byte
+	ProposalReplyChan    chan []byte
+	ProposalConfirmChan  chan []byte
+	ViewChangeChan       chan []byte
+	NewViewChan          chan []byte
+	InitLeaderChan       chan []byte
 	ValidateHostNameChan chan bool
-	JoinReplyChan       chan JoinReplyMessage
-	JoinChan            chan JoinMessage
+	JoinReplyChan        chan JoinReplyMessage
+	JoinChan             chan JoinMessage
+	//@wuhui
+	DataSyncLeaderChan chan []byte
 )
 
 func init() {
@@ -56,6 +58,8 @@ func init() {
 	InitLeaderChan = make(chan []byte, ChanSize)
 	JoinReplyChan = make(chan JoinReplyMessage, ChanSize)
 	JoinChan = make(chan JoinMessage, ChanSize)
+	//@wuhui
+	DataSyncLeaderChan = make(chan []byte, ChanSize)
 
 }
 
@@ -137,7 +141,7 @@ func (n *DNet) handleConn(conn net.Conn) {
 		data     = make([]byte, 0)
 		needData bool
 	)
-    fmt.Println("handleConn")
+	fmt.Println("handleConn")
 	state := Packed
 	for {
 		dataBuf := make([]byte, MaxPacketLength)
@@ -247,7 +251,7 @@ func (n *DNet) handleConn(conn net.Conn) {
 				ProposalChan <- msg.Payload
 			case ValidateHostName:
 				fmt.Println("ValidateHostName")
-				
+
 			case BlockMsg:
 				BlockChan <- msg.Payload
 			case BlockConfirmMsg:
@@ -284,7 +288,7 @@ func (n *DNet) handleConn(conn net.Conn) {
 // If non-node is reached, return error
 func (n *DNet) Join(seeds []string, t int) error {
 	if t > 10 {
-	        t = 10
+		t = 10
 	}
 	time.Sleep(time.Duration(t) * time.Second)
 	msg, err := NewJoinMessage()
@@ -335,7 +339,7 @@ func JoinNode(addr string) (net.Conn, error) {
 	return conn, nil
 }
 
-func (n *DNet)  BroadCast(payload []byte, t MessageTypeT) {
+func (n *DNet) BroadCast(payload []byte, t MessageTypeT) {
 	data, err := PackMessage(NewMessage(t, payload)) //返回一个message的结构体，包含payload和messagetype
 	if err != nil {
 		logger.Warningf("[Network] BroadCast json.Marshal error=%v", err)
@@ -343,17 +347,18 @@ func (n *DNet)  BroadCast(payload []byte, t MessageTypeT) {
 	}
 
 	if conf.BCDnsConfig.Byzantine && (t == BlockCommitMsg || t == BlockConfirmMsg || t == ProposalReplyMsg) {
-		rand2 := rand.New(rand.NewSource(time.Now().UnixNano()))
-		ignored := rand2.Intn(service.CertificateAuthorityX509.GetNetworkSize() - 1)
-		for i, m := range n.Members {
-			if i != ignored || int64(i) == service.CertificateAuthorityX509.NodeId { //Pick a random replica and do not send message
-				_, err := m.Send(data)
-				if err != nil {
-					logger.Warningf("[Network] BroadCast send error=%v", err)
-				}
-			} else {
-				logger.Debugf("[Network] byzantine: not broadcasting to replica %v", i)
-			}
+		//rand2 := rand.New(rand.NewSource(time.Now().UnixNano()))
+		//ignored := rand2.Intn(service.CertificateAuthorityX509.GetNetworkSize() - 1)
+		//ignored := service.CertificateAuthorityX509.GetNetworkSize() - 1
+		for i, _ := range n.Members {
+			//if i != ignored || int64(i) == service.CertificateAuthorityX509.NodeId { //Pick a random replica and do not send message
+			//	_, err := m.Send(data)
+			//	if err != nil {
+			//		logger.Warningf("[Network] BroadCast send error=%v", err)
+			//	}
+			//} else {
+			logger.Debugf("[Network] byzantine: not broadcasting to replica %v", i)
+			//}
 		}
 	} else {
 		for _, m := range n.Members {
@@ -364,6 +369,23 @@ func (n *DNet)  BroadCast(payload []byte, t MessageTypeT) {
 		}
 	}
 }
+
+//func (n *DNet) BroadCast_leader(payload []byte, t MessageTypeT) {
+//	data, err := PackMessage(NewMessage(t, payload)) //返回一个message的结构体，包含payload和messagetype
+//	if err != nil {
+//		logger.Warningf("[Network] BroadCast json.Marshal error=%v", err)
+//		return
+//	}
+//
+//	if t == DataSyncMsg {
+//		for _, m := range n.Members {
+//			_, err := m.Send(data)
+//			if err != nil {
+//				logger.Warningf("[Network] BroadCast send error=%v", err)
+//			}
+//		}
+//	}
+//}
 
 func (n *DNet) SendTo(payload []byte, t MessageTypeT, to string) {
 	data, err := PackMessage(NewMessage(t, payload))

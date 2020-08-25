@@ -88,6 +88,7 @@ func (b *Block) Hash() ([]byte, error) {
 	return utils.SHA256(headerHash), nil
 }
 
+//？
 func (b *Block) GenerateMerkelRoot() []byte {
 	var merkell func(hashes [][]byte) []byte
 	merkell = func(hashes [][]byte) []byte {
@@ -206,7 +207,6 @@ func UnMarshalBlockValidated(data []byte) (*BlockValidated, error) {
 	}
 	return b, nil
 }
-
 
 func (b *BlockValidated) VerifyBlockValidated() bool {
 	hash, err := b.Block.Hash() //blockheader
